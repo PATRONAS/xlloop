@@ -34,6 +34,10 @@ private:
 	wchar_t* url;
 	wchar_t* host;
 	wchar_t* path;
+	wchar_t* proxy_user;
+	wchar_t* proxy_pw;
+	wchar_t* server_user;
+	wchar_t* server_pw;
 	HINTERNET hSession;
 	URL_COMPONENTS urlc;
 	bool hasConnected;
