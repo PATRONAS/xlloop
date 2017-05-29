@@ -128,10 +128,10 @@ HttpProtocol::~HttpProtocol()
 	if(url) free(url);
 	if(host) free(host);
 	if(path) free(path);
-	if (proxy_user) free(proxy_user);
-	if (proxy_pw) free(proxy_pw);
-	if (server_user) free(server_user);
-	if (server_pw) free(server_pw);
+	//if (proxy_user) free(proxy_user);
+	//if (proxy_pw) free(proxy_pw);
+	//if (server_user) free(server_user);
+	//if (server_pw) free(server_pw);
 }
 
 
@@ -506,13 +506,13 @@ LPXLOPER HttpProtocol::Execute(const char* name, bool sendCaller, LPXLOPER* args
 				Log::Info("Using proxy: %s", proxy.lpszProxy);
 				proxy_exists = true; //added
 			}
-			hSession = WinHttpOpen(USER_AGENT, proxyType,
+			this->hSession = WinHttpOpen(USER_AGENT, proxyType,
 				proxy.lpszProxy, proxy.lpszProxyBypass, 0);
 
 
-			WinHttpSetTimeouts(hSession, 10000, 10000, 10000, 10000);
+			WinHttpSetTimeouts(this->hSession, 10000, 10000, 10000, 10000);
 
-			REQUEST_CONTEXT context;
+			//REQUEST_CONTEXT context;
 			context.hEvent = CreateEvent(0, 1, 0, 0);
 			context.hConnect = WinHttpConnect(hSession, host, urlc.nPort, 0);
 			int flags = WINHTTP_FLAG_BYPASS_PROXY_CACHE;
