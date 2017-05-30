@@ -6,6 +6,7 @@
 * 
 * Contributors:
 *     Peter Smith
+*	  Steven Pan
 *******************************************************************************/
 
 #include "HttpProtocol.h"
@@ -27,6 +28,16 @@
 #define REQ_NAME_NAME   "name"
 #define REQ_ARGS_NAME   "args"
 
+//Steven's added proxy code
+bool proxy_exists = false;
+bool proxy_failed = false;
+bool nonproxy_attempted = false;
+char* username = "";
+char* password = "";
+
+//LPCWSTR username;
+//LPCWSTR password;
+
 typedef struct _ctx {
 	HINTERNET hConnect;
 	HINTERNET hRequest;
@@ -35,6 +46,39 @@ typedef struct _ctx {
 	yajl_gen g;
 	LPXLOPER px;
 } REQUEST_CONTEXT;
+
+
+DWORD ChooseAuthScheme(DWORD dwSupportedSchemes)
+{
+	//  It is the server's responsibility only to accept 
+	//  authentication schemes that provide a sufficient
+	//  level of security to protect the servers resources.
+	//
+	//  The client is also obligated only to use an authentication
+	//  scheme that adequately protects its username and password.
+	//
+	//  Thus, this sample code does not use Basic authentication  
+	//  becaus Basic authentication exposes the client's username
+	//  and password to anyone monitoring the connection.
+
+	if (dwSupportedSchemes & WINHTTP_AUTH_SCHEME_NEGOTIATE)
+		return WINHTTP_AUTH_SCHEME_NEGOTIATE;
+	else if (dwSupportedSchemes & WINHTTP_AUTH_SCHEME_NTLM)
+		return WINHTTP_AUTH_SCHEME_NTLM;
+	else if (dwSupportedSchemes & WINHTTP_AUTH_SCHEME_PASSPORT)
+		return WINHTTP_AUTH_SCHEME_PASSPORT;
+	else if (dwSupportedSchemes & WINHTTP_AUTH_SCHEME_DIGEST)
+		return WINHTTP_AUTH_SCHEME_DIGEST;
+
+	//Added basic auth -SP
+
+	else if (dwSupportedSchemes & WINHTTP_AUTH_SCHEME_BASIC)
+		return WINHTTP_AUTH_SCHEME_BASIC;
+
+	else
+		return 0;
+}
+
 
 VOID CALLBACK CallBack(HINTERNET session, DWORD_PTR context, DWORD status, LPVOID statusInfo, DWORD statusInfoLen);
 
@@ -85,7 +129,13 @@ HttpProtocol::~HttpProtocol()
 	if(url) free(url);
 	if(host) free(host);
 	if(path) free(path);
+	if (proxy_user) free(proxy_user);
+	if (proxy_pw) free(proxy_pw);
+	if (server_user) free(server_user);
+	if (server_pw) free(server_pw);
 }
+
+
 
 void HttpProtocol::initialize(dictionary* ini, const char* section)
 {
@@ -117,26 +167,89 @@ void HttpProtocol::initialize(dictionary* ini, const char* section)
 
 	// Determine proxy
 	char* proxy = INI::GetString(ini, section, FS_PROXY, NULL);
+
+	char* puser = INI::GetString(ini, section, ":proxy_username", NULL);
+	char* ppw = INI::GetString(ini, section, ":proxy_password", NULL);
+
+	char* suser = INI::GetString(ini, section, ":server_username", NULL);
+	char* spw = INI::GetString(ini, section, ":server_password", NULL);
+
+	this->proxy_user = NULL;
+	this->proxy_pw = NULL;
+	this->server_user = NULL;
+	this->server_pw = NULL;
+	
+	if (puser) {
+		
+		int psz = MultiByteToWideChar(CP_ACP, 0, puser, strlen(puser), 0, 0);
+		this->proxy_user = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_ACP, 0, puser, strlen(puser), this->proxy_user, psz);
+		this->proxy_user[psz] = 0;
+
+
+
+	}
+	if (ppw) {
+
+		int psz = MultiByteToWideChar(CP_ACP, 0, ppw, strlen(ppw), 0, 0);
+		this->proxy_pw= (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_ACP, 0, ppw, strlen(ppw), this->proxy_pw, psz);
+		this->proxy_pw[psz] = 0;
+
+
+
+	}
+
+	if (suser) {
+
+		int psz = MultiByteToWideChar(CP_ACP, 0, suser, strlen(suser), 0, 0);
+
+		this->server_user = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_ACP, 0, suser, strlen(suser), this->server_user, psz);
+		this->server_user[psz] = 0;
+
+
+	}
+	if (spw) {
+
+
+		int psz = MultiByteToWideChar(CP_ACP, 0, spw, strlen(spw), 0, 0);
+		this->server_pw = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_ACP, 0, spw, strlen(spw), this->server_pw, psz);
+		this->server_pw[psz] = 0;
+
+
+	}
+	
+	
 	if(proxy) {
 		Log::Info("Using proxy: %s", proxy);
 		int psz = MultiByteToWideChar(CP_ACP, 0, url, strlen(url), 0, 0);
 		wchar_t* wproxy = (wchar_t*) malloc((psz + 1) * sizeof(wchar_t));
 		MultiByteToWideChar(CP_ACP, 0, proxy, strlen(proxy), wproxy, psz);
 		wproxy[psz] = 0;
-		hSession = WinHttpOpen(USER_AGENT, WINHTTP_ACCESS_TYPE_NO_PROXY,
-			wproxy, 0, 0);
+		hSession = WinHttpOpen(USER_AGENT, WINHTTP_ACCESS_TYPE_NAMED_PROXY,
+			wproxy, WINHTTP_NO_PROXY_BYPASS, 0);
+		
+		proxy_exists = true; //added
 		free(wproxy);
 	} else {
+
+		nonproxy_attempted = true;
+
 		WINHTTP_CURRENT_USER_IE_PROXY_CONFIG proxy;
 		WinHttpGetIEProxyConfigForCurrentUser(&proxy);
 		int proxyType = WINHTTP_ACCESS_TYPE_NO_PROXY;
 		if(proxy.lpszProxy) {
 			proxyType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
 			Log::Info("Using proxy: %s", proxy.lpszProxy);
+			proxy_exists = true; //added
 		}
 		hSession = WinHttpOpen(USER_AGENT, proxyType,
 			proxy.lpszProxy, proxy.lpszProxyBypass, 0);
 	}
+
+	WinHttpSetTimeouts(hSession, 10000, 10000, 10000, 10000);
 }
 
 LPXLOPER HttpProtocol::execute(const char* name, bool sendCaller, int count, ...)
@@ -196,6 +309,9 @@ LPXLOPER HttpProtocol::Execute(const char* name, bool sendCaller, LPXLOPER* args
 		flags |= WINHTTP_FLAG_SECURE;
 	context.hRequest = WinHttpOpenRequest(context.hConnect, L"POST", path, 0, 0, 0, 
 		flags);
+
+	
+
 	context.conf.beautify = 0;
 	context.conf.indentString = "";
 	context.g = yajl_gen_alloc(&context.conf, 0);
@@ -206,48 +322,281 @@ LPXLOPER HttpProtocol::Execute(const char* name, bool sendCaller, LPXLOPER* args
     unsigned int len = 0;
     yajl_gen_get_buf(context.g, &buf, &len);
 	BOOL res = FALSE;
-	res = WinHttpSendRequest(context.hRequest, 0, 0, (LPVOID) buf, len, len, (DWORD_PTR) &context);
-	if(!res) {
-		const char* err = "#Could not connect to server";
-		Log::Error(err);
+	
+	if (proxy_exists) {
+		//Added msdn check for proxy auth
+		//--------------------------------------------
+
+		DWORD dwStatusCode = 0;
+		DWORD dwSupportedSchemes;
+		DWORD dwFirstScheme;
+		DWORD dwSelectedScheme;
+		DWORD dwTarget;
+		DWORD dwLastStatus = 0;
+		DWORD dwSize = sizeof(DWORD);
+		//BOOL  bResults = FALSE;
+		BOOL  bDone = FALSE;
+		DWORD dwProxyAuthScheme = 0;
+
+		BOOL responseError = FALSE;
+
+		if (context.hRequest == NULL)
+			bDone = true;
+
+		while (!bDone)
+		{
+			if (dwProxyAuthScheme != 0) {
+
+
+				res = WinHttpSetCredentials(context.hRequest,
+					WINHTTP_AUTH_TARGET_PROXY,
+					dwProxyAuthScheme,
+					this->proxy_user,
+					this->proxy_pw,
+					NULL);
+
+
+			}
+
+			res = WinHttpSendRequest(context.hRequest, 0, 0, (LPVOID)buf, len, len, (DWORD_PTR)&context);
+
+			
+
+			if (res)
+				res = WinHttpReceiveResponse(context.hRequest, NULL);
+			else
+				responseError = TRUE;
+
+			if (!res && GetLastError() == ERROR_WINHTTP_RESEND_REQUEST)
+				continue;
+
+			if (res)
+				res = WinHttpQueryHeaders(context.hRequest,
+					WINHTTP_QUERY_STATUS_CODE |
+					WINHTTP_QUERY_FLAG_NUMBER,
+					NULL,
+					&dwStatusCode,
+					&dwSize,
+					NULL);
+
+
+			if (res)
+			{
+
+				switch (dwStatusCode)
+
+				{
+				case 200:
+					printf("resource received.\n");
+					bDone = TRUE;
+					break;
+				case 401:
+					// The server requires authentication.
+					printf(" The server requires authentication. Sending credentials...\n");
+
+					// Obtain the supported and preferred schemes.
+					res = WinHttpQueryAuthSchemes(context.hRequest,
+						&dwSupportedSchemes,
+						&dwFirstScheme,
+						&dwTarget);
+
+					// Set the credentials before resending the request.
+					if (res)
+					{
+						dwSelectedScheme = ChooseAuthScheme(dwSupportedSchemes);
+
+						if (dwSelectedScheme == 0)
+							bDone = TRUE;
+						else
+							res = WinHttpSetCredentials(context.hRequest,
+								dwTarget,
+								dwSelectedScheme,
+								this->server_user,
+								this->server_pw,
+								NULL);
+					}
+
+					// If the same credentials are requested twice, abort the
+					// request.  For simplicity, this sample does not check
+					// for a repeated sequence of status codes.
+					if (dwLastStatus == 401)
+						bDone = TRUE;
+
+					break;
+
+				case 407:
+					// The proxy requires authentication.
+					printf("The proxy requires authentication.  Sending credentials...\n");
+
+					// Obtain the supported and preferred schemes.
+					res = WinHttpQueryAuthSchemes(context.hRequest,
+						&dwSupportedSchemes,
+						&dwFirstScheme,
+						&dwTarget);
+
+					// Set the credentials before resending the request.
+					if (res)
+						dwProxyAuthScheme = ChooseAuthScheme(dwSupportedSchemes);
+
+					// If the same credentials are requested twice, abort the
+					// request.  For simplicity, this sample does not check 
+					// for a repeated sequence of status codes.
+					if (dwLastStatus == 407)
+						bDone = TRUE;
+					break;
+
+				default:
+					// The status code does not indicate success.
+					printf("Error. Status code %d returned.\n", dwStatusCode);
+					bDone = TRUE;
+
+
+
+				}
+			}
+
+			// Keep track of the last status code.
+			dwLastStatus = dwStatusCode;
+
+			// If there are any errors, break out of the loop.
+			if (!res)
+				bDone = TRUE;
+
+		}
+
+		//Added msdn check for proxy auth
+		//--------------------------------------------
+
+
+		//If proxy fails don't return, execute next block
+		if (dwStatusCode != 200) {
+			proxy_failed = true;
+			proxy_exists = false; //Don't allow more attempted proxy connections if it fails.
+			Log::Error("Status code: %d", dwStatusCode);
+			const char* err = "#Server returned an error";
+			context.px->val.str = XLUtil::MakeExcelString(err);
+		}
+
+		//If proxy and request both work just go ahead with request
+		else {
+			ReadData(&context);
+			WinHttpCloseHandle(context.hRequest);
+			WinHttpCloseHandle(context.hConnect);
+			yajl_gen_clear(context.g);
+			yajl_gen_free(context.g);
+			context.px->xltype |= xlbitDLLFree;
+			return context.px;
+		}
+	}
+	
+	if(!proxy_exists||proxy_failed) {
+
+
+		//If the else block of the session with proxy was not executed before, try again now since
+		//the proxy has failed. This requires that the session, connection, and contexst values be
+		//redone.
+		if (!nonproxy_attempted) {
+			
+			//Only allow this attempt once, otherwise sessions will repeat every time.
+			nonproxy_attempted = true;
+
+			WINHTTP_CURRENT_USER_IE_PROXY_CONFIG proxy;
+			WinHttpGetIEProxyConfigForCurrentUser(&proxy);
+			int proxyType = WINHTTP_ACCESS_TYPE_NO_PROXY;
+			if (proxy.lpszProxy) {
+				proxyType = WINHTTP_ACCESS_TYPE_NAMED_PROXY;
+				Log::Info("Using proxy: %s", proxy.lpszProxy);
+				proxy_exists = true; //added
+			}
+			this->hSession = WinHttpOpen(USER_AGENT, proxyType,
+				proxy.lpszProxy, proxy.lpszProxyBypass, 0);
+
+
+			WinHttpSetTimeouts(this->hSession, 10000, 10000, 10000, 10000);
+
+			//REQUEST_CONTEXT context;
+			context.hEvent = CreateEvent(0, 1, 0, 0);
+			context.hConnect = WinHttpConnect(hSession, host, urlc.nPort, 0);
+			int flags = WINHTTP_FLAG_BYPASS_PROXY_CACHE;
+			if (urlc.nScheme == INTERNET_SCHEME_HTTPS)
+				flags |= WINHTTP_FLAG_SECURE;
+			context.hRequest = WinHttpOpenRequest(context.hConnect, L"POST", path, 0, 0, 0,
+				flags);
+
+
+
+			context.conf.beautify = 0;
+			context.conf.indentString = "";
+			context.g = yajl_gen_alloc(&context.conf, 0);
+			context.px = (LPXLOPER)malloc(sizeof(XLOPER));
+			context.px->xltype = xltypeNil | xlbitDLLFree;
+			GenerateRequest(context.g, name, sendCaller, args, argc);
+			const unsigned char * buf;
+			unsigned int len = 0;
+			yajl_gen_get_buf(context.g, &buf, &len);
+			BOOL res = FALSE;
+		}
+
+
+		
+		res = WinHttpSendRequest(context.hRequest, 0, 0, (LPVOID) buf, len, len, (DWORD_PTR) &context);
+
+
+
+
+		if(!res) {
+		
+			const char* err = "#Could not connect to server";
+			Log::Error(err);
+			WinHttpCloseHandle(context.hRequest);
+			WinHttpCloseHandle(context.hConnect);
+			context.px->xltype = xltypeStr | xlbitDLLFree;
+			context.px->val.str = XLUtil::MakeExcelString(err);
+			return context.px;
+		}
+		// TODO timeout/background
+		res = WinHttpReceiveResponse(context.hRequest, 0);
+		if(!res) {
+		
+			const char* err = "#Error retrieving server response";
+			Log::Error(err);
+			WinHttpCloseHandle(context.hRequest);
+			WinHttpCloseHandle(context.hConnect);
+			context.px->xltype = xltypeStr | xlbitDLLFree;
+			context.px->val.str = XLUtil::MakeExcelString(err);
+			return context.px;
+		}
+
+		// Check http response code
+		DWORD status;
+		DWORD statusLength = 4;
+
+
+		res = WinHttpQueryHeaders(context.hRequest, WINHTTP_QUERY_STATUS_CODE| WINHTTP_QUERY_FLAG_NUMBER,
+			NULL, &status, &statusLength, 0);
+
+		if(!res || status != 200) {
+		
+			Log::Error("Status code: %d", status);
+			
+			const char* err = "#Server returned an error";
+			WinHttpCloseHandle(context.hRequest);
+			WinHttpCloseHandle(context.hConnect);
+			context.px->xltype = xltypeStr | xlbitDLLFree;
+			context.px->val.str = XLUtil::MakeExcelString(err);
+			return context.px;
+		}
+		ReadData(&context);
 		WinHttpCloseHandle(context.hRequest);
 		WinHttpCloseHandle(context.hConnect);
-		context.px->xltype = xltypeStr | xlbitDLLFree;
-		context.px->val.str = XLUtil::MakeExcelString(err);
+		yajl_gen_clear(context.g);
+		yajl_gen_free(context.g);
+		context.px->xltype |= xlbitDLLFree;
 		return context.px;
+
+
 	}
-	// TODO timeout/background
-	res = WinHttpReceiveResponse(context.hRequest, 0);
-	if(!res) {
-		const char* err = "#Error retrieving server response";
-		Log::Error(err);
-		WinHttpCloseHandle(context.hRequest);
-		WinHttpCloseHandle(context.hConnect);
-		context.px->xltype = xltypeStr | xlbitDLLFree;
-		context.px->val.str = XLUtil::MakeExcelString(err);
-		return context.px;
-	}
-	// Check http response code
-	DWORD status;
-	DWORD statusLength = 4;
-	res = WinHttpQueryHeaders(context.hRequest, WINHTTP_QUERY_STATUS_CODE| WINHTTP_QUERY_FLAG_NUMBER,
-		NULL, &status, &statusLength, 0);
-	if(!res || status != 200) {
-		Log::Error("Status code: %d", status);
-		const char* err = "#Server returned an error";
-		WinHttpCloseHandle(context.hRequest);
-		WinHttpCloseHandle(context.hConnect);
-		context.px->xltype = xltypeStr | xlbitDLLFree;
-		context.px->val.str = XLUtil::MakeExcelString(err);
-		return context.px;
-	}
-	ReadData(&context);
-	WinHttpCloseHandle(context.hRequest);
-	WinHttpCloseHandle(context.hConnect);
-    yajl_gen_clear(context.g);
-	yajl_gen_free(context.g);
-	context.px->xltype |= xlbitDLLFree;
-	return context.px;
+
 }
 
 
