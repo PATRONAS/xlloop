@@ -6,6 +6,7 @@
 * 
 * Contributors:
 *     Peter Smith
+*	  Steven Pan
 *******************************************************************************/
 
 #include "HttpProtocol.h"
@@ -128,10 +129,10 @@ HttpProtocol::~HttpProtocol()
 	if(url) free(url);
 	if(host) free(host);
 	if(path) free(path);
-	//if (proxy_user) free(proxy_user);
-	//if (proxy_pw) free(proxy_pw);
-	//if (server_user) free(server_user);
-	//if (server_pw) free(server_pw);
+	if (proxy_user) free(proxy_user);
+	if (proxy_pw) free(proxy_pw);
+	if (server_user) free(server_user);
+	if (server_pw) free(server_pw);
 }
 
 
@@ -172,26 +173,29 @@ void HttpProtocol::initialize(dictionary* ini, const char* section)
 
 	char* suser = INI::GetString(ini, section, ":server_username", NULL);
 	char* spw = INI::GetString(ini, section, ":server_password", NULL);
+
+	this->proxy_user = NULL;
+	this->proxy_pw = NULL;
+	this->server_user = NULL;
+	this->server_pw = NULL;
 	
 	if (puser) {
 		
 		int psz = MultiByteToWideChar(CP_ACP, 0, puser, strlen(puser), 0, 0);
-		wchar_t* wpuser = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
-		MultiByteToWideChar(CP_ACP, 0, puser, strlen(puser), wpuser, psz);
-		wpuser[psz] = 0;
+		this->proxy_user = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_ACP, 0, puser, strlen(puser), this->proxy_user, psz);
+		this->proxy_user[psz] = 0;
 
-		this->proxy_user = wpuser;
 
 
 	}
 	if (ppw) {
 
 		int psz = MultiByteToWideChar(CP_ACP, 0, ppw, strlen(ppw), 0, 0);
-		wchar_t* wppw = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
-		MultiByteToWideChar(CP_ACP, 0, ppw, strlen(ppw), wppw, psz);
-		wppw[psz] = 0;
+		this->proxy_pw= (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_ACP, 0, ppw, strlen(ppw), this->proxy_pw, psz);
+		this->proxy_pw[psz] = 0;
 
-		this->proxy_pw = wppw;
 
 
 	}
@@ -199,22 +203,20 @@ void HttpProtocol::initialize(dictionary* ini, const char* section)
 	if (suser) {
 
 		int psz = MultiByteToWideChar(CP_ACP, 0, suser, strlen(suser), 0, 0);
-		wchar_t* wsuser = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
-		MultiByteToWideChar(CP_ACP, 0, suser, strlen(suser), wsuser, psz);
-		wsuser[psz] = 0;
 
-		this->server_user = wsuser;
+		this->server_user = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_ACP, 0, suser, strlen(suser), this->server_user, psz);
+		this->server_user[psz] = 0;
 
 
 	}
 	if (spw) {
 
-		int psz = MultiByteToWideChar(CP_ACP, 0, spw, strlen(spw), 0, 0);
-		wchar_t* wspw = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
-		MultiByteToWideChar(CP_ACP, 0, spw, strlen(spw), wspw, psz);
-		wspw[psz] = 0;
 
-		this->server_pw = wspw;
+		int psz = MultiByteToWideChar(CP_ACP, 0, spw, strlen(spw), 0, 0);
+		this->server_pw = (wchar_t*)malloc((psz + 1) * sizeof(wchar_t));
+		MultiByteToWideChar(CP_ACP, 0, spw, strlen(spw), this->server_pw, psz);
+		this->server_pw[psz] = 0;
 
 
 	}
